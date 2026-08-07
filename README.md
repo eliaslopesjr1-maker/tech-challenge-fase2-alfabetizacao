@@ -22,14 +22,24 @@ O projeto segue a **Arquitetura Medalhão**, um padrão comum em engenharia de d
 
 ### Origem dos dados
 
-Os dados vêm da plataforma [Base dos Dados](https://basedosdados.org/), usando as seguintes tabelas:
+Os dados vêm da plataforma [Base dos Dados](https://basedosdados.org/), que disponibiliza os dados do INEP no Google BigQuery, dentro do conjunto `br_inep_avaliacao_alfabetizacao`.
 
-- UF
-- Meta Alfabetização Brasil
-- Meta Alfabetização por UF
-- Meta Alfabetização por Município
-- Município
-- Dados de alunos
+| Tabela do desafio | Nome técnico | Tamanho aproximado |
+|---|---|---|
+| UF | `uf` | 145 linhas |
+| Meta Alfabetização Brasil | `meta_alfabetizacao_brasil` | 3 linhas |
+| Meta Alfabetização por UF | `meta_alfabetizacao_uf` | 81 linhas |
+| Meta Alfabetização por Município | `meta_alfabetizacao_municipio` | ~10.700 linhas |
+| Município | `municipio` | ~24.000 linhas |
+| Dados de alunos | `alunos` | ~3,9 milhões de linhas |
+
+Além dessas, o conjunto `br_bd_diretorios_brasil` fornece tabelas de referência (`uf` e `municipio`) com nome oficial, região e outras informações de cadastro, usadas para enriquecer os dados na camada Silver.
+
+**Como os dados são obtidos:**
+- As tabelas menores (metas, município, UF) podem ser baixadas diretamente pelo site da Base dos Dados.
+- A tabela `alunos`, por ser grande, é acessada de forma gratuita via Google BigQuery (é necessário um projeto gratuito no Google Cloud) ou pelo pacote Python `basedosdados`.
+
+**Atenção ao integrar as tabelas**: a coluna que identifica o estado tem nomes diferentes dependendo da tabela (`sigla_uf` nas tabelas de alfabetização, `sigla` no diretório de UF). Essa padronização de nomes é feita na camada Silver, antes de juntar as tabelas.
 
 ### Ingestão híbrida (batch + streaming)
 
