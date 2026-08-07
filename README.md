@@ -58,18 +58,14 @@ Além dessas, o conjunto `br_bd_diretorios_brasil` fornece tabelas de referênci
 
 | Ferramenta | Uso no projeto | Por que foi escolhida |
 |---|---|---|
-| Databricks | Processamento e armazenamento das camadas Bronze/Silver/Gold | > TODO |
-| Azure | Nuvem onde o ambiente Databricks está hospedado | > TODO |
-| Delta Lake | Formato de armazenamento das tabelas | > TODO |
-
-> TODO: completar a tabela conforme as ferramentas forem definidas
+| Databricks | Processamento e armazenamento das camadas Bronze/Silver/Gold | Reúne processamento batch e streaming (Spark) e armazenamento em Delta Lake na mesma plataforma |
+| Azure | Nuvem onde o ambiente Databricks está hospedado | Integração nativa com Databricks |
+| Delta Lake | Formato de armazenamento das tabelas | Permite versionamento e leitura/escrita eficiente, ideal para a Arquitetura Medalhão |
+| Base dos Dados (`basedosdados`) | Acesso às tabelas originais do INEP | Fonte de dados oficial indicada pelo desafio, disponível via BigQuery |
 
 ## 5. Decisões arquiteturais
 
-> TODO: explicar as escolhas feitas e as alternativas descartadas, por exemplo:
-> - Por que batch para uma fonte e streaming para outra
-> - Por que usar data lake em vez de data warehouse (ou o contrário)
-> - Trade-off entre custo e performance
+O detalhamento de cada decisão tomada no projeto, com a justificativa, está registrado em [`docs/architecture/decisoes.md`](docs/architecture/decisoes.md) - incluindo escolha de ferramentas, estrutura de pastas, fluxo de Git e pontos que ainda estão em aberto.
 
 ## 6. Qualidade de dados
 
