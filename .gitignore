@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Databricks
+.databricks/
+
+# Segredos e configurações locais
+.env
+*.env
+
+# Sistema
+.DS_Store
+Thumbs.db
