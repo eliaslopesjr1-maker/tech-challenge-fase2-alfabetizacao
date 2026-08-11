@@ -49,7 +49,7 @@ df_uf_silver = (
 )
 
 df_uf_silver.write.format("delta").mode("overwrite").saveAsTable(f"{CATALOGO_SILVER}.{SCHEMA}.uf")
-print(f"uf: {df_uf_silver.count()} linhas")
+print(f"uf: {spark.table(f'{CATALOGO_SILVER}.{SCHEMA}.uf').count()} linhas")
 
 # COMMAND ----------
 
@@ -71,6 +71,13 @@ df_municipio_diretorio = (
     .withColumnRenamed("nome", "nome_municipio")
 )
 
+# Evita erro de coluna duplicada caso a tabela de indicadores tambem tenha
+# sigla_uf/nome_uf (o join usa so id_municipio como chave, entao colunas
+# repetidas nos dois lados quebrariam o saveAsTable la na frente)
+colunas_repetidas = (set(df_municipio_diretorio.columns) & set(df_municipio_indicadores.columns)) - {"id_municipio"}
+if colunas_repetidas:
+    df_municipio_indicadores = df_municipio_indicadores.drop(*colunas_repetidas)
+
 df_municipio_silver = (
     df_municipio_indicadores
     .dropDuplicates(["id_municipio", "ano", "rede", "serie"])
@@ -78,7 +85,7 @@ df_municipio_silver = (
 )
 
 df_municipio_silver.write.format("delta").mode("overwrite").saveAsTable(f"{CATALOGO_SILVER}.{SCHEMA}.municipio")
-print(f"municipio: {df_municipio_silver.count()} linhas")
+print(f"municipio: {spark.table(f'{CATALOGO_SILVER}.{SCHEMA}.municipio').count()} linhas")
 
 # COMMAND ----------
 
@@ -127,19 +134,18 @@ df_meta_municipio = desempilhar_metas(
     colunas_chave=["id_municipio"],
 )
 
-# Junta as tres, preenchendo com nulo as colunas de chave que nao se aplicam
-# (ex: uma meta nacional nao tem sigla_uf nem id_municipio)
+# Junta as tres. allowMissingColumns=True preenche automaticamente com nulo
+# a coluna de chave que nao existe em cada tabela (ex: meta nacional nao tem
+# sigla_uf nem id_municipio) - nao precisa criar essas colunas na mao.
 df_metas_silver = (
-    df_meta_brasil.withColumn("sigla_uf", F.lit(None).cast("string")).withColumn("id_municipio", F.lit(None).cast("string"))
-    .unionByName(
-        df_meta_uf.withColumn("id_municipio", F.lit(None).cast("string"))
-    )
-    .unionByName(df_meta_municipio.withColumn("sigla_uf", F.lit(None).cast("string")))
+    df_meta_brasil
+    .unionByName(df_meta_uf, allowMissingColumns=True)
+    .unionByName(df_meta_municipio, allowMissingColumns=True)
     .dropDuplicates()
 )
 
 df_metas_silver.write.format("delta").mode("overwrite").saveAsTable(f"{CATALOGO_SILVER}.{SCHEMA}.metas")
-print(f"metas: {df_metas_silver.count()} linhas")
+print(f"metas: {spark.table(f'{CATALOGO_SILVER}.{SCHEMA}.metas').count()} linhas")
 
 # COMMAND ----------
 
@@ -147,8 +153,10 @@ print(f"metas: {df_metas_silver.count()} linhas")
 # MAGIC ## 4. Alunos
 # MAGIC
 # MAGIC Aqui o tratamento é:
-# MAGIC - Remover duplicidade de aluno no mesmo ano
 # MAGIC - Descartar linhas sem proficiência (não dá pra saber se o aluno foi alfabetizado sem essa nota)
+# MAGIC - Remover duplicidade de aluno no mesmo ano (nessa ordem: primeiro tira quem não
+# MAGIC   tem nota, depois remove duplicado - assim, se um aluno tiver duas linhas e só uma
+# MAGIC   com nota, é a linha com nota que sobra, não a vazia por sorte)
 # MAGIC - Criar a coluna `atingiu_ponto_corte`, aplicando a regra oficial do desafio:
 # MAGIC   proficiência maior ou igual a **743 pontos** = criança alfabetizada. Essa é a
 # MAGIC   definição usada pelo próprio Inep para calcular o Indicador Criança Alfabetizada.
@@ -163,16 +171,16 @@ qtd_antes = df_alunos_bronze.count()
 
 df_alunos_silver = (
     df_alunos_bronze
-    .dropDuplicates(["id_aluno", "ano"])
     .filter(F.col("proficiencia").isNotNull())
+    .dropDuplicates(["id_aluno", "ano"])
     .withColumn("atingiu_ponto_corte", F.col("proficiencia") >= PONTO_DE_CORTE_ALFABETIZACAO)
 )
 
-qtd_depois = df_alunos_silver.count()
+df_alunos_silver.write.format("delta").mode("overwrite").saveAsTable(f"{CATALOGO_SILVER}.{SCHEMA}.alunos")
+
+qtd_depois = spark.table(f"{CATALOGO_SILVER}.{SCHEMA}.alunos").count()
 print(f"alunos: {qtd_antes} linhas na Bronze -> {qtd_depois} linhas na Silver "
       f"({qtd_antes - qtd_depois} descartadas por duplicidade ou falta de nota)")
-
-df_alunos_silver.write.format("delta").mode("overwrite").saveAsTable(f"{CATALOGO_SILVER}.{SCHEMA}.alunos")
 
 # COMMAND ----------
 
