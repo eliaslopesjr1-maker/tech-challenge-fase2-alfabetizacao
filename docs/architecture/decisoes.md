@@ -42,10 +42,19 @@ Este arquivo registra as principais decisões tomadas durante o desenvolvimento,
 
 **Por quê**: manter os dados brutos sem alteração é o princípio da camada Bronze - se algo der errado mais na frente, sempre dá para voltar aos dados originais. As colunas de controle ajudam a rastrear e também servem de base para o monitoramento da pipeline (ex: saber quando cada tabela foi atualizada pela última vez).
 
+## Ingestão em streaming
+
+**Decisão**: como a fonte de dados (Base dos Dados) é um dataset histórico e não tem uma torneira de dados chegando ao vivo, a parte de streaming foi resolvida com dois notebooks:
+
+- `src/bronze/simulador_eventos_streaming.py` - gera eventos falsos de "novas medições de desempenho" (no formato da tabela `alunos`) e grava cada um como um arquivo JSON numa pasta de pouso (landing zone), com uma pausa entre um arquivo e outro.
+- `src/bronze/ingestao_streaming.py` - usa o Auto Loader do Databricks (`cloudFiles`) para monitorar essa pasta e processar automaticamente qualquer arquivo novo, gravando na tabela `bronze.alfabetizacao.alunos_streaming`.
+
+**Por quê**: essa abordagem demonstra o conceito de streaming pedido no desafio (processamento incremental, sem reler tudo a cada execução, com checkpoint para não perder nem duplicar eventos) de forma honesta sobre a limitação da fonte de dados - em vez de fingir que existe uma API em tempo real que não existe.
+
+**Revisão de código**: essa parte passou por uma revisão que encontrou e corrigiu: risco de erro se a tabela de município estiver vazia, nome de arquivo com caracteres inseguros, falta da opção `cloudFiles.schemaLocation` exigida pelo Auto Loader, e uma contagem de linhas que rodava sem necessidade a cada execução.
+
 ## Decisões ainda em aberto
 
-- Como simular a parte de **streaming** (o desafio pede ingestão híbrida batch + streaming)
-- Regras específicas de limpeza e validação da camada **Silver**
 - Formato final dos datasets da camada **Gold**
-- Estratégia de monitoramento e como isso vai ser demonstrado
+- Estratégia de monitoramento mais ampla (além do que já existe no notebook de streaming) e como isso vai ser demonstrado
 - Como a otimização de custos (FinOps) será aplicada e documentada
