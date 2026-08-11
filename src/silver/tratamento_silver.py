@@ -16,6 +16,7 @@
 # COMMAND ----------
 
 from pyspark.sql import functions as F
+from pyspark.sql.window import Window
 
 CATALOGO_BRONZE = "bronze"
 CATALOGO_SILVER = "silver"
@@ -33,6 +34,20 @@ spark.sql(f"CREATE SCHEMA IF NOT EXISTS {CATALOGO_SILVER}.{SCHEMA}")
 
 # COMMAND ----------
 
+def padronizar_e_juntar(df_indicadores, df_diretorio, coluna_join, colunas_dedup):
+    """Remove colunas repetidas entre indicadores e diretorio (evita erro de
+    coluna duplicada no join), remove duplicados e junta as duas tabelas."""
+    colunas_repetidas = (set(df_diretorio.columns) & set(df_indicadores.columns)) - {coluna_join}
+    if colunas_repetidas:
+        df_indicadores = df_indicadores.drop(*colunas_repetidas)
+
+    return (
+        df_indicadores
+        .dropDuplicates(colunas_dedup)
+        .join(df_diretorio, on=coluna_join, how="left")
+    )
+
+
 df_uf_indicadores = spark.table(f"{CATALOGO_BRONZE}.{SCHEMA}.uf")
 
 df_uf_diretorio = (
@@ -42,10 +57,9 @@ df_uf_diretorio = (
     .select("sigla_uf", "nome_uf", "regiao")
 )
 
-df_uf_silver = (
-    df_uf_indicadores
-    .dropDuplicates(["sigla_uf", "ano", "rede", "serie"])
-    .join(df_uf_diretorio, on="sigla_uf", how="left")
+df_uf_silver = padronizar_e_juntar(
+    df_uf_indicadores, df_uf_diretorio,
+    coluna_join="sigla_uf", colunas_dedup=["sigla_uf", "ano", "rede", "serie"],
 )
 
 df_uf_silver.write.format("delta").mode("overwrite").saveAsTable(f"{CATALOGO_SILVER}.{SCHEMA}.uf")
@@ -71,17 +85,9 @@ df_municipio_diretorio = (
     .withColumnRenamed("nome", "nome_municipio")
 )
 
-# Evita erro de coluna duplicada caso a tabela de indicadores tambem tenha
-# sigla_uf/nome_uf (o join usa so id_municipio como chave, entao colunas
-# repetidas nos dois lados quebrariam o saveAsTable la na frente)
-colunas_repetidas = (set(df_municipio_diretorio.columns) & set(df_municipio_indicadores.columns)) - {"id_municipio"}
-if colunas_repetidas:
-    df_municipio_indicadores = df_municipio_indicadores.drop(*colunas_repetidas)
-
-df_municipio_silver = (
-    df_municipio_indicadores
-    .dropDuplicates(["id_municipio", "ano", "rede", "serie"])
-    .join(df_municipio_diretorio, on="id_municipio", how="left")
+df_municipio_silver = padronizar_e_juntar(
+    df_municipio_indicadores, df_municipio_diretorio,
+    coluna_join="id_municipio", colunas_dedup=["id_municipio", "ano", "rede", "serie"],
 )
 
 df_municipio_silver.write.format("delta").mode("overwrite").saveAsTable(f"{CATALOGO_SILVER}.{SCHEMA}.municipio")
@@ -153,10 +159,11 @@ print(f"metas: {spark.table(f'{CATALOGO_SILVER}.{SCHEMA}.metas').count()} linhas
 # MAGIC ## 4. Alunos
 # MAGIC
 # MAGIC Aqui o tratamento é:
+# MAGIC - Garantir que a proficiência seja numérica (evita comparação errada tipo texto)
 # MAGIC - Descartar linhas sem proficiência (não dá pra saber se o aluno foi alfabetizado sem essa nota)
-# MAGIC - Remover duplicidade de aluno no mesmo ano (nessa ordem: primeiro tira quem não
-# MAGIC   tem nota, depois remove duplicado - assim, se um aluno tiver duas linhas e só uma
-# MAGIC   com nota, é a linha com nota que sobra, não a vazia por sorte)
+# MAGIC - Remover duplicidade de aluno no mesmo ano de forma **determinística**: se houver
+# MAGIC   mais de uma nota válida para o mesmo aluno/ano (ex: reaplicação de prova), fica
+# MAGIC   sempre a de maior peso amostral - e o resultado não muda entre execuções
 # MAGIC - Criar a coluna `atingiu_ponto_corte`, aplicando a regra oficial do desafio:
 # MAGIC   proficiência maior ou igual a **743 pontos** = criança alfabetizada. Essa é a
 # MAGIC   definição usada pelo próprio Inep para calcular o Indicador Criança Alfabetizada.
@@ -165,14 +172,22 @@ print(f"metas: {spark.table(f'{CATALOGO_SILVER}.{SCHEMA}.metas').count()} linhas
 
 PONTO_DE_CORTE_ALFABETIZACAO = 743
 
-df_alunos_bronze = spark.table(f"{CATALOGO_BRONZE}.{SCHEMA}.alunos")
+df_alunos_bronze = spark.table(f"{CATALOGO_BRONZE}.{SCHEMA}.alunos").withColumn(
+    "proficiencia", F.col("proficiencia").cast("double")
+)
 
 qtd_antes = df_alunos_bronze.count()
+
+janela_desempate = Window.partitionBy("id_aluno", "ano").orderBy(
+    F.col("peso_aluno").desc_nulls_last(), F.col("proficiencia").desc_nulls_last()
+)
 
 df_alunos_silver = (
     df_alunos_bronze
     .filter(F.col("proficiencia").isNotNull())
-    .dropDuplicates(["id_aluno", "ano"])
+    .withColumn("_ordem_desempate", F.row_number().over(janela_desempate))
+    .filter(F.col("_ordem_desempate") == 1)
+    .drop("_ordem_desempate")
     .withColumn("atingiu_ponto_corte", F.col("proficiencia") >= PONTO_DE_CORTE_ALFABETIZACAO)
 )
 
@@ -191,6 +206,9 @@ print(f"alunos: {qtd_antes} linhas na Bronze -> {qtd_depois} linhas na Silver "
 # MAGIC para a camada Gold. O ideal é que todas as contagens abaixo sejam zero.
 
 # COMMAND ----------
+
+ufs_sem_diretorio = df_uf_silver.filter(F.col("nome_uf").isNull()).count()
+print(f"UFs sem correspondência no diretório: {ufs_sem_diretorio}")
 
 municipios_sem_diretorio = df_municipio_silver.filter(F.col("nome_municipio").isNull()).count()
 print(f"Municípios sem correspondência no diretório: {municipios_sem_diretorio}")
