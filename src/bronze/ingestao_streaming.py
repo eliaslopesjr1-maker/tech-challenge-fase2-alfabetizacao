@@ -17,13 +17,18 @@ from pyspark.sql.types import StructType, StructField, StringType, IntegerType, 
 
 # COMMAND ----------
 
+CATALOGO_BRONZE = "bronze"
+SCHEMA_BRONZE = "alfabetizacao"
+
 dbutils.widgets.text("caminho_landing", "/Volumes/bronze/alfabetizacao/landing_streaming", "Pasta de pouso dos eventos")
 dbutils.widgets.text("caminho_checkpoint", "/Volumes/bronze/alfabetizacao/checkpoints/streaming_alunos", "Pasta de checkpoint")
+dbutils.widgets.text("caminho_schema_location", "/Volumes/bronze/alfabetizacao/schema_location/streaming_alunos", "Pasta de controle de schema do Auto Loader")
 
 caminho_landing = dbutils.widgets.get("caminho_landing")
 caminho_checkpoint = dbutils.widgets.get("caminho_checkpoint")
+caminho_schema_location = dbutils.widgets.get("caminho_schema_location")
 
-TABELA_DESTINO = "bronze.alfabetizacao.alunos_streaming"
+TABELA_DESTINO = f"{CATALOGO_BRONZE}.{SCHEMA_BRONZE}.alunos_streaming"
 
 # COMMAND ----------
 
@@ -64,6 +69,10 @@ df_streaming = (
     spark.readStream
     .format("cloudFiles")
     .option("cloudFiles.format", "json")
+    # cloudFiles.schemaLocation guarda o schema usado e eventuais mudanças
+    # nele ao longo do tempo. O Auto Loader exige essa pasta mesmo quando o
+    # schema já vem definido na mão, como aqui.
+    .option("cloudFiles.schemaLocation", caminho_schema_location)
     .schema(schema_eventos)
     .load(caminho_landing)
 )
@@ -104,15 +113,24 @@ query.awaitTermination()
 
 # COMMAND ----------
 
+linhas_processadas_nesta_execucao = 0
 for lote in query.recentProgress:
+    linhas_processadas_nesta_execucao += lote["numInputRows"]
     print(
         f"Lote em {lote['timestamp']}: "
         f"{lote['numInputRows']} linha(s) processada(s) "
         f"em {lote['durationMs'].get('triggerExecution', 0)} ms"
     )
 
-total_linhas_streaming = spark.table(TABELA_DESTINO).count()
-print(f"Total acumulado na tabela {TABELA_DESTINO}: {total_linhas_streaming} linhas")
+print(f"Total processado nesta execução: {linhas_processadas_nesta_execucao} linhas")
+
+# A tabela só existe depois que o primeiro lote grava alguma coisa - se o
+# streaming rodou sem nenhum arquivo novo na pasta, ela pode nao existir ainda
+if spark.catalog.tableExists(TABELA_DESTINO):
+    total_linhas_streaming = spark.table(TABELA_DESTINO).count()
+    print(f"Total acumulado na tabela {TABELA_DESTINO}: {total_linhas_streaming} linhas")
+else:
+    print(f"Tabela {TABELA_DESTINO} ainda não existe (nenhum evento processado até agora).")
 
 # COMMAND ----------
 

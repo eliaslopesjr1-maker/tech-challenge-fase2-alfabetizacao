@@ -23,6 +23,9 @@ from datetime import datetime, timezone
 
 # COMMAND ----------
 
+CATALOGO_BRONZE = "bronze"
+SCHEMA_BRONZE = "alfabetizacao"
+
 dbutils.widgets.text("caminho_landing", "/Volumes/bronze/alfabetizacao/landing_streaming", "Pasta de pouso dos eventos")
 dbutils.widgets.text("quantidade_eventos", "5", "Quantos arquivos gerar nesta execução")
 dbutils.widgets.text("intervalo_segundos", "5", "Espera entre um evento e outro (segundos)")
@@ -46,8 +49,14 @@ dbutils.fs.mkdirs(caminho_landing)
 
 municipios_disponiveis = [
     linha["id_municipio"]
-    for linha in spark.table("bronze.alfabetizacao.municipio").select("id_municipio").distinct().limit(200).collect()
+    for linha in spark.table(f"{CATALOGO_BRONZE}.{SCHEMA_BRONZE}.municipio").select("id_municipio").distinct().limit(200).collect()
 ]
+
+if not municipios_disponiveis:
+    raise ValueError(
+        "Nenhum município encontrado na tabela bronze.alfabetizacao.municipio. "
+        "Rode o notebook ingestao_bronze.py primeiro para carregar os dados base."
+    )
 
 # COMMAND ----------
 
@@ -76,7 +85,11 @@ def gerar_evento():
 
 for i in range(quantidade_eventos):
     evento = gerar_evento()
-    nome_arquivo = f"{caminho_landing}/evento_{evento['timestamp_evento']}_{i}.json"
+    # O campo timestamp_evento (dentro do JSON) fica em formato ISO completo,
+    # mas ":" e "+" não são seguros em nome de arquivo - por isso o nome do
+    # arquivo usa um formato mais simples, só com números.
+    sufixo_arquivo = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+    nome_arquivo = f"{caminho_landing}/evento_{sufixo_arquivo}_{i}.json"
     dbutils.fs.put(nome_arquivo, json.dumps(evento), overwrite=True)
     print(f"Evento {i + 1}/{quantidade_eventos} gravado: {nome_arquivo}")
 
