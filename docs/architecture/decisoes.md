@@ -53,6 +53,16 @@ Este arquivo registra as principais decisões tomadas durante o desenvolvimento,
 
 **Revisão de código**: essa parte passou por uma revisão que encontrou e corrigiu: risco de erro se a tabela de município estiver vazia, nome de arquivo com caracteres inseguros, falta da opção `cloudFiles.schemaLocation` exigida pelo Auto Loader, e uma contagem de linhas que rodava sem necessidade a cada execução.
 
+## Projeto Google Cloud para acesso aos dados
+
+**Decisão**: foi criado um projeto gratuito no Google Cloud (`tech-challenge-alfabet-3340`), usado exclusivamente como identificador para consultar o BigQuery público da Base dos Dados - não hospeda nenhuma parte da solução.
+
+**Por quê**: a Base dos Dados exige um projeto do Google Cloud vinculado a cada consulta (mesmo gratuita) para controlar a cota de uso. Isso não muda a decisão de usar Databricks + Azure para a arquitetura da solução - é só a "chave de acesso" à fonte de dados.
+
+**Confirmado**: o acesso funciona no modo gratuito (BigQuery Sandbox), sem precisar de cartão de crédito. Testado com uma consulta na tabela `uf` (retornou as 145 linhas esperadas).
+
+**Como usar**: o ID desse projeto (`tech-challenge-alfabet-3340`) deve ser informado no widget `billing_project_id` dos notebooks `ingestao_bronze.py` ao rodar no Databricks.
+
 ## Decisões ainda em aberto
 
 - Formato final dos datasets da camada **Gold**
