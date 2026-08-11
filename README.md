@@ -43,8 +43,8 @@ Além dessas, o conjunto `br_bd_diretorios_brasil` fornece tabelas de referênci
 
 ### Ingestão híbrida (batch + streaming)
 
-- **Batch**: usado para dados que mudam pouco, como metas e dados de município. É carregado em blocos, de tempos em tempos.
-- **Streaming**: usado para simular atualizações que chegam aos poucos, como novas medições de desempenho ou atualização de metas.
+- **Batch** (`src/bronze/ingestao_bronze.py`): usado para os dados históricos (metas, município, UF, alunos), que mudam pouco. Baixa a tabela inteira da Base dos Dados de tempos em tempos.
+- **Streaming** (`src/bronze/simulador_eventos_streaming.py` + `src/bronze/ingestao_streaming.py`): como a fonte original é um dataset histórico (sem atualização ao vivo), a chegada de novos dados em tempo quase real é simulada - um notebook gera arquivos representando novas medições de desempenho, e outro processa cada arquivo novo automaticamente usando o Auto Loader do Databricks, sem reprocessar o que já foi lido antes.
 
 ### Diagrama da pipeline
 
